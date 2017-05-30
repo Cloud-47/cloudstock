@@ -2,6 +2,16 @@
 #include <LiquidCrystal.h>
 #include <string.h>
 //Constants
+//Coefficient correcteur
+#define K 0.55
+//Coefficient de pert
+#define Cp  0.8
+//
+#define Rt 0.8
+#define Pd 0.8
+//rondemenet
+#define Rond 0.9
+
 
 //Courant
 #define AC 0
@@ -9,13 +19,11 @@
 //SITE
 #define ALGER     1
 #define BOUMERDES 2
-#define OURAN     3
-//Irradiation
-#define Ir_Alger 100
-#define Ir_BOUMERDES 120
-#define Ir_ORAN 90
-//Coefficient correcteur
-#define K 0.55
+#define ORAN     3
+//Ensoleiment
+#define Ne_Alger 100
+#define Ne_BOUMERDES 120
+#define Ne_ORAN 90
 //Volatge utilisé
 #define _12V 1
 #define _24V 2
@@ -26,12 +34,20 @@
 #define _200watts  2
 #define _300watts  3
 #define _500watts  5
-
+//Cost panneau;
+#define cost_100watts  10000
+#define cost_200watts  20000
+#define cost_300watts  30000
+#define cost_500watts  50000
 //type de batterie
 #define pas_batterie  0
 #define batterie_100W 1
 #define batterie_200W 2
 #define batterie_500W 5
+//Cost Battery
+#define Cost_batterie_100W 10000
+#define Cost_batterie_200W 20000
+#define Cost_batterie_500W 50000
 
 //Fonction d'affichage
 LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
@@ -47,18 +63,19 @@ bool can_go=true;
 char input[16];
 int nb_input=0;
 
-//
-byte site_number;
-double Ec;//Energie consommée
-byte VoltageAmount;
-byte ACDC;
-byte Antonome;
-byte Type_Of_Panel;
-byte Type_Of_Batery;
-
 bool calculated=false;
 //
 char clean_row[]="                ";
+
+//Valeur entrer par l'utilisateur
+byte site_number;
+double Ec;//Energie consommée
+byte temps=12;//temps de fonctionement par heure
+byte VoltageAmount;
+byte ACDC;
+byte Type_Of_Panel;
+double Antonome=1;
+byte Type_Of_Batery;
 
 
 //Valeur calculer par le programme
@@ -66,10 +83,11 @@ double Pch;//Puissance crete
 double Vch;//tension utilisée par la charge
 double Vn;// tension nominal
 double Pc;//Puissance des panneaux
-
+double cost;
 int Nm;//Nombre de module
 int Ns;//Nombre de module en série
 int Np;//nombre de module en parallel
+int Nb;//Nombre de batterie
 
 
 /**
@@ -81,17 +99,19 @@ int print_step(){
   switch(step){
       case 1: lcd.print("Enter the SITE");break;
       case 2: lcd.print("Enter the Power Amount");break;
-      case 3: lcd.print("Enter the Volatge Amount");break;
+      case 3: lcd.print("Enter the Volate Amount");break;
       case 4: lcd.print("AC or DC");break;
-      case 5: lcd.print("Antonome");break;
+      case 5: lcd.print("Autonomie");break;
       case 6: lcd.print("Type Of Panel");break;
-      case 7: lcd.print("Type Of Batery");break;
-      case 8: lcd.print("Calulat");break;
+      case 7: lcd.print("Type Of Battery");break;
+      case 8: step8_Calculate();break;
       case 9: step9_NemberOfPanel();break;
-      case 10: lcd.print("on série");break;
-      case 11: lcd.print("on parelel")break;
-      case 12: lcd.print("cost");break;
-      case 13: init_step();break;
+      case 10: step10_OnSerie();break;
+      case 11: step11_OnParalele();break;
+      case 12: step12_battry();break;
+      case 13: step13_Cost();break;
+      case 14:  lcd.print("New Calculation"); delay(2000);
+                init_step();break;
     }
   lcd.setCursor(0,1);
   nb_input=0;
@@ -198,11 +218,11 @@ int step4_ACDC(char kp){
   if(nb_input>2)return 1;
   if(kp=='A'){
     lcd.print("AC");
-    input[nb_input++]='0'+ AC;
+    input[nb_input++]='0';
     can_go=true;
   }else if (kp=='D'){
     lcd.print("DC");
-    input[nb_input++]='0'+ DC;
+    input[nb_input++]='';
     can_go=true;
   }
 
@@ -212,9 +232,16 @@ int step4_ACDC(char kp){
  */
 int step5_Antonome(char kp){
   if(nb_input>14)return 1;
-  lcd.print(kp);
-  input[nb_input++]=kp;
-  can_go=true;
+  if(kp=='D'){
+    lcd.print('.');
+    input[nb_input++]='.';
+      can_go=false;
+  }else{
+    lcd.print(kp);
+    input[nb_input++]=kp;
+    can_go=true;
+  }
+
 }
 /**
  *Etape 5
@@ -238,72 +265,129 @@ int step7_Type_Of_Batery(char kp){
  *Etape 7
  */
 int step8_Calculate(){
-  double Ir;
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Calulating...");
+
+  double Bj;
+  switch(ACDC){
+    case AC:Bj=Ec*temps/Rond;break;
+    case DC:Bj=Ec*temps;break;
+  }
+
+  double Ne;
  switch(site_number){
-   case ALGER: Ir=Ir_Alger;
+   case ALGER: Ne=Ne_Alger;
    break;
-   case BOUMERDES:Ir=Ir_BOUMERDES;
+   case BOUMERDES:Ne=Ne_BOUMERDES;
    break;
-   case ORAN: Ir=Ir_ORAN;
+   case ORAN: Ne=Ne_ORAN;
    break;
+   default : Ne=Ne_Alger;
  }
- Pch=Er/(K*Ir);
+
+//Calcule Pch
+ Pch=Bj/(Cp*Ne);
 
  switch(VoltageAmount){
-   case _12V:;break;
-   case _24V:;break;
-   case _48V:;break;
+   case _12V:Vch=12;break;
+   case _24V:Vch=24;break;
+   case _48V:Vch=48;break;
+   default : Vch=48;
  }
- switch(ACDC){
-   case AC:;break;
-   case DC:;break;
- }
+ int cost_1pann;
  switch(Type_Of_Panel){
-   case _100watts:Pc=100;break;
-   case _200watts:Pc=200;break;
-   case _300watts:Pc=300;break;
-   case _500watts:Pc=500;break;
+   case _100watts:Pc=100;Vn=12;cost_1pann=cost_100watts;break;
+   case _200watts:Pc=200;Vn=12;cost_1pann=cost_200watts;break;
+   case _300watts:Pc=300;Vn=24;cost_1pann=cost_300watts;break;
+   case _500watts:Pc=500;Vn=48;cost_1pann=cost_500watts;break;
  }
 
  //calculer nombre de module
-  Nm=(int)(Pcs/Pc);
+  Nm=(int)(Pch/Pc);
+ // En série et en parallel
+  Ns=(int)(Vch/Vn) +1;
+  Np=(int)(Nm/Ns) +1;
 
+
+
+  double Cbat=Bj*Antonome/(Vch*Rt*Pd);
+  int C1bat;
+  int cost_1batt;
  switch(Type_Of_Batery){
-   case pas_batterie:;break;
-   case batterie_100W:;break;
-   case batterie_200W:;break;
-   case batterie_200W:;break;
+   case batterie_100W:C1bat=100;cost_1batt=Cost_batterie_100W;break;
+   case batterie_200W:C1bat=200;cost_1batt=Cost_batterie_200W;break;
+   case batterie_500W:C1bat=500;cost_1batt=Cost_batterie_500W;break;
  }
+ if(Type_Of_Batery==pas_batterie)
+    Nb=0;
+  else
+    Nb=(int)(Cbat/C1bat) +1;
+
+ // Calculer le cout
+ cost=Nb*cost_1batt + Nm*cost_1pann;
+
+
+
+
  calculated=true;
- lcd.print("Résulat calculer :)");
+ lcd.clear();
+ lcd.setCursor(0,0);
+ lcd.print("Done.");
+ lcd.setCursor(0,1);
+ lcd.print("Press # to print :)");
 }
 /**
- *Etape 8
+ *Etape 9
  */
 
 int step9_NemberOfPanel(){
-  lcd.print("Nember of Panel :");
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Number of Panel :");
   lcd.setCursor(0,1);
   lcd.print(Nm);
 };
 /**
- *Etape 9
- */
-int step10_OnSerie(){
-
-};
-/**
  *Etape 10
  */
-
-int step11_OnParalele(){
-
+int step10_OnSerie(){
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Number of serial Panel :");
+  lcd.setCursor(0,1);
+  lcd.print(Ns);
 };
 /**
  *Etape 11
  */
-int step12_Cost(){
 
+int step11_OnParalele(){
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Number of Parallel Panel :");
+  lcd.setCursor(0,1);
+  lcd.print(Np);
+};
+/**
+ * Etape 12
+ */
+int step12_battry(){
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Number of battry :");
+  lcd.setCursor(0,1);
+  lcd.print(Nb);
+};
+/**
+ *Etape 13
+ */
+int step13_Cost(){
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Cost :");
+  lcd.setCursor(0,1);
+  lcd.print(cost);
 };
 /**
  *keypad function
